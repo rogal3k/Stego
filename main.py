@@ -19,7 +19,6 @@ class AES_CTR_PRNG:
         return result
 
     def get_random_bit(self) -> int:
-        """Pobiera pojedynczy bit ze strumienia AES (do wybielania)"""
         if not self.bit_buffer:
             byte = self.get_random_bytes(1)[0]
             for i in range(8):
@@ -30,7 +29,7 @@ class AES_CTR_PRNG:
         indices = set()
         while len(indices) < num_indices:
             rand_byte = self.get_random_bytes(1)[0]
-            index = rand_byte & 0x7F  # Maska 0-127 dla bloku 16-bajtowego
+            index = rand_byte & 0x7F  # Maska 0-127
             indices.add(index)
         return list(indices)
 
@@ -57,14 +56,14 @@ def bit_list_to_bytes(bit_list: list) -> bytes:
         byte_data.append(b)
     return bytes(byte_data)
 
-# 3. GŁÓWNA LOGIKA: UKRYWANIE (Zintegrowane oba tryby)
+# 3. GŁÓWNA LOGIKA: UKRYWANIE
 def embed_message(input_path: str, output_path: str, password: str, bits_per_block: int, mode: str = "WHITENING"):
     key, nonce = derive_key_nonce(password)
     prng = AES_CTR_PRNG(key, nonce)
     
     embedded_count = 0
     bytes_processed = 0
-    MAX_EMBED_BYTES = int(12.8 * 1024 * 1024) # Maksymalny obszar pracy
+    MAX_EMBED_BYTES = int(12.8 * 1024 * 1024) # Obszar pracy
     
     with open(input_path, 'rb') as f_in, open(output_path, 'wb') as f_out:
         while True:
@@ -77,16 +76,13 @@ def embed_message(input_path: str, output_path: str, password: str, bits_per_blo
                 msg_indices = prng.get_indices_for_block(bits_per_block)
                 
                 for idx in msg_indices:
-                    # Wiadomość deterministyczna: zawsze chcemy ukryć jedynkę (M = 1)
-                    msg_bit = 1 
+                    msg_bit = 1 # zawartość wiadomości - same jedynki
                     
-                    if mode == "WHITENING":
-                        # Sprytny plan: XORujemy naszą jedynkę z losowym bitem AES
+                    if mode == "WHITENING": # XOR
                         aes_bit = prng.get_random_bit()
                         stego_bit = msg_bit ^ aes_bit
                     else:
-                        # Brutalne wstrzykiwanie: po prostu wpisujemy 1 bez XORowania
-                        stego_bit = 1
+                        stego_bit = 1 # Tryb PLAIN - brute-force jedynki
                         
                     bits[idx] = stego_bit
                         
@@ -98,7 +94,7 @@ def embed_message(input_path: str, output_path: str, password: str, bits_per_blo
                 
     return embedded_count
 
-# 4. GŁÓWNA LOGIKA: EKSTRAKCJA (Plik nośnika po tym jest zużyty i nie naprawiany)
+# 4. GŁÓWNA LOGIKA: EKSTRAKCJA
 def extract_message(stego_path: str, password: str, bits_per_block: int, expected_bits: int, mode: str = "WHITENING"):
     key, nonce = derive_key_nonce(password)
     prng = AES_CTR_PRNG(key, nonce) 
@@ -119,16 +115,13 @@ def extract_message(stego_path: str, password: str, bits_per_block: int, expecte
                     stego_bit = bits[idx]
                     
                     if mode == "WHITENING":
-                        # Odtwarzamy dokładnie ten sam bit AES i zdejmujemy maskę XOR
                         aes_bit = prng.get_random_bit()
                         msg_bit = stego_bit ^ aes_bit
                     else:
-                        # W trybie zwykłym po prostu czytamy to co jest w pliku
                         msg_bit = stego_bit
                         
                     extracted_message.append(msg_bit) 
             else:
-                # Jeśli wyciągnęliśmy już wszystkie bity, przerywamy czytanie pliku
                 break
                 
     return extracted_message
@@ -140,30 +133,17 @@ if __name__ == "__main__":
     HASLO = "TajneHaslo123"
     BITY_NA_BLOK = 6
     
-    # =========================================================================
-    # TUTAJ WYBIERASZ TRYB DZIAŁANIA:
-    # "WHITENING" -> Sprytny plan (XOR wiadomości z AES przed zapisem)
-    # "PLAIN"     -> Brutalne wstrzykiwanie (wpisywanie czystych jedynek)
-    # =========================================================================
-    TRYB = "WHITENING"  # Zmień na "PLAIN" aby przetestować drugi tryb
-    
-    # Atrapa pliku źródłowego na potrzeby lokalnego uruchomienia testowego
-    if not os.path.exists(PLIK_ZRODLOWY):
-        with open(PLIK_ZRODLOWY, "wb") as f:
-            f.write(os.urandom(1024 * 100)) # 100 KB losowych danych
-
-    print(f"--- URUCHOMIONO W TRYBIE: {TRYB} ---")
+    TRYB = "WHITENING"  
     
     print("\nETAP 1: UKRYWANIE...")
     ukryte_bity = embed_message(PLIK_ZRODLOWY, PLIK_STEGO, HASLO, BITY_NA_BLOK, mode=TRYB)
-    print(f"Zakończono. Spróbowano zapisać {ukryte_bity} jedynek w pliku stego.")
+    print(f"Zakończono. 'Ukryto' {ukryte_bity} jedynek w pliku.")
     
     print("\nETAP 2: EKSTRAKCJA WIADOMOŚCI...")
     odzyskana_wiadomosc = extract_message(PLIK_STEGO, HASLO, BITY_NA_BLOK, ukryte_bity, mode=TRYB)
     print(f"Odzyskano {len(odzyskana_wiadomosc)} bitów z pliku nośnika.")
     
     # WERYFIKACJA SPÓJNOŚCI DANYCH
-    # Ponieważ nasza wiadomość to same jedynki, sprawdzamy czy odzyskana lista zawiera wyłącznie wartości 1
     czy_same_jedynki = all(bit == 1 for bit in odzyskana_wiadomosc)
     
     print("\nWYNIK KOŃCOWY")
